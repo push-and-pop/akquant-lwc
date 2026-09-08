@@ -72,6 +72,27 @@ class _StubResult:
         )
 
 
+class _PositionsStubResult(_StubResult):
+    """合成结果（测试夹具）：附带逐日持仓快照."""
+
+    @property
+    def positions_df(self) -> pd.DataFrame:
+        idx = pd.to_datetime(["2024-01-03", "2024-01-04"]).tz_localize("UTC")
+        return pd.DataFrame(
+            {
+                "date": idx,
+                "symbol": ["AAA", "AAA"],
+                "long_shares": [100.0, 100.0],
+                "short_shares": [0.0, 0.0],
+                "close": [100.0, 101.0],
+                "equity": [1_001_000.0, 1_002_000.0],
+                "market_value": [10_000.0, 10_100.0],
+                "unrealized_pnl": [100.0, 200.0],
+                "entry_price": [99.0, 99.0],
+            }
+        )
+
+
 def _market_frame() -> pd.DataFrame:
     idx = pd.date_range("2024-01-02", periods=60, freq="B")
     base = [100.0 + (i % 7) for i in range(60)]
@@ -114,6 +135,21 @@ def test_metric_card_colors() -> None:
     cards = {c["label"]: c for c in app["metrics"]}
     assert cards["累计收益率 (Total Return)"]["cls"] == "pos"
     assert cards["最大回撤 (Max DD)"]["cls"] == "warn"
+
+
+def test_daily_positions_section() -> None:
+    """每日持仓总览按权益日期补齐空仓日，并展示持仓权重."""
+    app = build_app_data(_PositionsStubResult(), title="t")
+    html = app["dailyPositionsHtml"]
+    assert "每日持仓" not in html  # 卡片标题在模板里，不进入 fragment
+    assert "<td>2024-01-02</td>" in html
+    assert "<td>2024-01-03</td>" in html
+    assert "AAA" in html
+    assert "1.01%" in html
+    assert "<th>总资产(万)</th>" in html
+    assert "1.01万" in html
+    assert "100.20万" in html
+    assert "空仓" in html
 
 
 def test_benchmark_section() -> None:

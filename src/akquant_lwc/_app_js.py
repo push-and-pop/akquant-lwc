@@ -650,6 +650,7 @@ function injectFragment(nodeId, html, hideIfEmpty) {
 }
 
 injectFragment('analysis-overview', APP.analysisOverviewHtml, false);
+injectFragment('daily-positions', APP.dailyPositionsHtml, false);
 injectFragment('tbl-exposure', (APP.analysisTables || {}).exposure, true);
 injectFragment('tbl-capacity', (APP.analysisTables || {}).capacity, true);
 injectFragment('tbl-attribution', (APP.analysisTables || {}).attribution, true);

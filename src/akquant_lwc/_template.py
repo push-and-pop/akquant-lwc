@@ -255,6 +255,18 @@ details.details-block summary {
 .hbar-fill { background: var(--accent); height: 100%; }
 .hbar-seg { height: 100%; }
 .hbar-value { flex: 0 0 auto; color: var(--muted); }
+.position-list { display: flex; flex-wrap: wrap; gap: 6px; min-width: 320px; }
+.position-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 7px; border: 1px solid var(--border);
+  border-radius: 999px; background: var(--panel); font-size: 12px;
+}
+.position-chip span { color: var(--muted); }
+.position-chip.long span { color: var(--up); }
+.position-chip.short span { color: var(--down); }
+.position-chip.long span:first-of-type { color: var(--up); }
+.position-chip.short span:first-of-type { color: var(--down); }
+.position-chip.long, .position-chip.short { border-color: currentColor; }
 </style>
 <script>__LWC_JS__</script>
 </head>
@@ -275,6 +287,11 @@ details.details-block summary {
 <section class="card" id="metrics-card">
   <h2>核心指标 (Key Metrics)</h2>
   <div class="metrics-grid" id="metrics"></div>
+</section>
+
+<section class="card" id="daily-positions-card">
+  <h2>每日持仓总览 (Daily Holdings)</h2>
+  <div id="daily-positions"></div>
 </section>
 
 <section class="card">

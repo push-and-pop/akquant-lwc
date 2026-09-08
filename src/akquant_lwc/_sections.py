@@ -932,6 +932,160 @@ def build_analysis_tables(result: Any, compact: bool) -> Dict[str, str]:
     return out
 
 
+def build_daily_positions_section(result: Any, compact: bool) -> str:
+    """Build the day-by-day holdings overview (HTML).
+
+    ``positions_df`` only contains symbols with a non-zero position, so the
+    daily index is joined against the equity curve to keep no-position days
+    visible.
+
+    :param result: ``BacktestResult``-like object.
+    :param compact: Compact K/M/B amounts switch.
+    :return: HTML fragment with summary cards and a daily holdings table.
+    """
+    positions = _call_result_df(result, "positions_df")
+    required = {"date", "symbol"}
+    if positions.empty or not required.issubset(positions.columns):
+        return '<div class="hint">暂无持仓快照数据</div>'
+
+    dates = pd.to_datetime(positions["date"], errors="coerce").dropna()
+    if dates.empty:
+        return '<div class="hint">暂无持仓快照数据</div>'
+
+    view = positions.copy()
+    view["date"] = pd.to_datetime(view["date"], errors="coerce")
+    if view["date"].dt.tz is not None:
+        view["date"] = view["date"].dt.tz_localize(None)
+    view = view.dropna(subset=["date"])
+    view["_day"] = view["date"].dt.normalize()
+    view["_long"] = pd.to_numeric(view.get("long_shares"), errors="coerce").fillna(0.0)
+    view["_short"] = pd.to_numeric(view.get("short_shares"), errors="coerce").fillna(
+        0.0
+    )
+    view = view[(view["_long"].abs() > 0) | (view["_short"].abs() > 0)]
+
+    market_value = pd.to_numeric(view.get("market_value"), errors="coerce")
+    close = pd.to_numeric(view.get("close"), errors="coerce")
+    fallback_mv = view["_long"] * close - view["_short"] * close
+    view["_market_value"] = market_value.fillna(fallback_mv)
+    view["_gross"] = view["_market_value"].abs()
+    view["_equity"] = pd.to_numeric(view.get("equity"), errors="coerce")
+
+    # Snapshot feeds can repeat a symbol within a day in intraday results;
+    # the overview is daily, so the last snapshot is the end-of-day state.
+    view = view.sort_values(["_day", "date", "symbol"]).drop_duplicates(
+        ["_day", "symbol"], keep="last"
+    )
+
+    daily = view.groupby("_day", sort=True).agg(
+        count=("symbol", "size"),
+        net_value=("_market_value", "sum"),
+        gross_value=("_gross", "sum"),
+        equity=("_equity", "max"),
+    )
+
+    # ``resolve_equity_series`` fills daily calendar gaps for charts; the
+    # holdings overview should follow realized backtest days only.
+    equity = resolve_equity_series(result, "raw")
+    if not equity.empty:
+        daily_equity = equity.copy()
+        daily_equity.index = pd.to_datetime(daily_equity.index).normalize()
+        daily_equity = daily_equity[~daily_equity.index.duplicated(keep="last")]
+        daily["equity"] = daily["equity"].fillna(daily_equity)
+        daily = daily.reindex(daily.index.union(daily_equity.index)).sort_index()
+    daily["count"] = daily["count"].fillna(0).astype(int)
+    if daily.empty:
+        return '<div class="hint">暂无持仓快照数据</div>'
+
+    position_groups = {
+        day: group.sort_values("_gross", ascending=False)
+        for day, group in view.groupby("_day", sort=False)
+    }
+
+    def _fmt_wan(value: Any) -> str:
+        n = _num(value)
+        return "-" if n is None else f"{n / 10000:,.2f}万"
+
+    avg_count = float(daily["count"].mean())
+    max_count = float(daily["count"].max())
+    flat_days = int((daily["count"] == 0).sum())
+    exposures = []
+    for row in daily.itertuples():
+        if pd.isna(row.equity) or float(row.equity) <= 0:
+            continue
+        exposures.append(float(row.gross_value) / float(row.equity))
+    avg_exposure = sum(exposures) / len(exposures) if exposures else None
+    last_exposure = exposures[-1] if exposures else None
+
+    cards = "".join(
+        _overview_card(label, value)
+        for label, value in (
+            ("交易日 (Days)", _fmt_int(float(len(daily)))),
+            ("平均持仓数 (Avg Positions)", _fmt_num(avg_count, 1)),
+            ("最高持仓数 (Max Positions)", _fmt_int(max_count)),
+            ("空仓天数 (Flat Days)", _fmt_int(float(flat_days))),
+            ("平均仓位 (Avg Exposure)", _fmt_ratio(avg_exposure)),
+            ("最新仓位 (Latest Exposure)", _fmt_ratio(last_exposure)),
+        )
+    )
+
+    rows: List[str] = []
+    for row in daily.itertuples():
+        day = pd.Timestamp(row.Index)
+        holdings = position_groups.get(day)
+        chips = []
+        if holdings is not None and not holdings.empty:
+            for _, item in holdings.iterrows():
+                long_qty = float(item["_long"])
+                short_qty = float(item["_short"])
+                quantity = long_qty if abs(long_qty) > 0 else abs(short_qty)
+                side = "long" if abs(long_qty) > 0 else "short"
+                side_label = "多" if side == "long" else "空"
+                qty_label = "N/A" if quantity <= 0 else f"{quantity:,.0f}股"
+                weight = ""
+                if pd.notna(row.equity) and float(row.equity) > 0:
+                    weight = f"{float(item['_gross']) / float(row.equity) * 100:.2f}%"
+                symbol = _html.escape(str(item["symbol"]))
+                chips.append(
+                    f'<span class="position-chip {side}"><b>{symbol}</b>'
+                    f"<span>{side_label}</span><span>{qty_label}</span>"
+                    f"<span>{weight}</span></span>"
+                )
+        holdings_html = (
+            '<div class="position-list">' + "".join(chips) + "</div>"
+            if chips
+            else '<span class="hint">空仓</span>'
+        )
+        gross = _num(row.gross_value)
+        net = _num(row.net_value)
+        equity_value = _num(row.equity)
+        exposure = (
+            gross / equity_value
+            if gross is not None and equity_value is not None and equity_value > 0
+            else None
+        )
+        rows.append(
+            "<tr>"
+            f"<td>{_date_str(day)}</td>"
+            f"<td>{len(chips)}</td>"
+            f'<td class="{_sign_cls(net)}">{_fmt_wan(net)}</td>'
+            f"<td>{_fmt_wan(gross)}</td>"
+            f'<td class="{_sign_cls(exposure)}">{_fmt_ratio(exposure)}</td>'
+            f"<td>{_fmt_wan(equity_value)}</td>"
+            f"<td>{holdings_html}</td>"
+            "</tr>"
+        )
+
+    return (
+        '<div class="metrics-grid">'
+        + cards
+        + '</div><table class="data-table position-table"><thead><tr>'
+        "<th>日期</th><th>持仓数</th><th>净持仓市值</th>"
+        "<th>总持仓市值(万)</th><th>仓位</th><th>总资产(万)</th><th>持仓明细</th>"
+        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+    )
+
+
 # ---------------------------------------------------------------------------
 # risk rejection / liquidation chart sections
 # ---------------------------------------------------------------------------
