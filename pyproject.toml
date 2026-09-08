@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "akquant-lwc"
-version = "0.1.1"
+version = "0.1.2"
 description = "TradingView Lightweight Charts backtest report & trade review plugin for AKQuant (plotly-free)"
 readme = "README.md"
 license = { text = "MIT License" }
