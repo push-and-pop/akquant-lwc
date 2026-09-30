@@ -152,6 +152,7 @@ def serve_review(
     title: str = "AKQuant 交易复盘 (Lightweight Charts)",
     open_browser: bool = True,
     compact_currency: bool = True,
+    symbol_names: Optional[Dict[str, str]] = None,
     benchmark: Optional[Union[str, "pd.Series"]] = None,
     curve_freq: str = "D",
 ) -> None:
@@ -172,6 +173,8 @@ def serve_review(
     :param title: Page title.
     :param open_browser: Open the page in the default browser on start.
     :param compact_currency: Render amounts with compact K/M/B suffixes.
+    :param symbol_names: Optional ``{symbol: display name}`` mapping shown by
+        the daily-holdings chips and the trade-review header.
     :param benchmark: Benchmark daily returns series (or a label string).
     :param curve_freq: Equity curve frequency: ``"D"`` or ``"raw"``.
     """
@@ -183,6 +186,7 @@ def serve_review(
         server_mode=True,
         extra_symbols=state.known_symbols(),
         compact_currency=compact_currency,
+        symbol_names=symbol_names,
         benchmark=benchmark,
         curve_freq=curve_freq,
     )

@@ -127,6 +127,7 @@ def test_build_app_data_structure() -> None:
     assert "AAA" in app["payloads"]
     assert app["payloads"]["AAA"]["markers"], "买卖点标记为空"
     assert app["risk"]["emptyReason"], "风控空态文案为空"
+    assert app["symbolNames"] == {}
 
 
 def test_metric_card_colors() -> None:
@@ -144,12 +145,45 @@ def test_daily_positions_section() -> None:
     assert "每日持仓" not in html  # 卡片标题在模板里，不进入 fragment
     assert "<td>2024-01-02</td>" in html
     assert "<td>2024-01-03</td>" in html
+    assert html.find("<td>2024-01-03</td>") < html.find("<td>2024-01-02</td>")
     assert "AAA" in html
     assert "1.01%" in html
     assert "<th>总资产(万)</th>" in html
+    assert '<div class="position-table-wrap">' in html
+    assert 'table-layout: fixed' in render_html("t", app)
     assert "1.01万" in html
     assert "100.20万" in html
     assert "空仓" in html
+
+
+def test_daily_positions_symbol_names() -> None:
+    """持仓明细优先显示中文名，未提供名称时回退代码."""
+    app = build_app_data(
+        _PositionsStubResult(), title="t", symbol_names={"AAA": "测试股份"}
+    )
+    assert app["symbolNames"] == {"AAA": "测试股份"}
+    html = app["dailyPositionsHtml"]
+    assert "<b>测试股份</b>" in html
+    assert "<b>AAA</b>" not in html
+    assert 'title="AAA"' in html  # 悬停提示保留代码
+    fallback = build_app_data(_PositionsStubResult(), title="t")
+    assert "<b>AAA</b>" in fallback["dailyPositionsHtml"]
+
+
+def test_review_search_matches_code_and_name() -> None:
+    """复盘输入框以代码/中文名双字段搜索，并保留键盘选择."""
+    app = build_app_data(
+        _StubResult(),
+        market_data={"AAA": _market_frame()},
+        title="t",
+        symbol_names={"AAA": "测试股份"},
+    )
+    page = render_html("t", app)
+    assert 'id="symbol-suggest"' in page
+    assert "输入代码或中文名称" in page
+    assert "entry.name.toLowerCase().indexOf(q) >= 0" in page
+    assert "fixRightEdge: true" in page
+    assert "minBarSpacing: 2" in page
 
 
 def test_benchmark_section() -> None:

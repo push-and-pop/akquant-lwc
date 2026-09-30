@@ -130,7 +130,11 @@ function baseOpts(height) {
     timeScale: {
       borderColor: PAL.border,
       timeVisible: true,
-      tickMarkFormatter: wallTimeFmt
+      tickMarkFormatter: wallTimeFmt,
+      rightOffset: 0,
+      fixLeftEdge: true,
+      fixRightEdge: true,
+      minBarSpacing: 2
     },
     localization: { timeFormatter: wallTimeFmt },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal }
@@ -844,18 +848,81 @@ function renderStackedArea(nodeId, seriesList) {
     node.className = isError ? 'status error' : 'status';
   }
 
-  function addSymbolOption(code) {
-    var list = el('symbol-list');
-    var exists = Array.prototype.some.call(
-      list.options, function (o) { return o.value === code; });
-    if (!exists) {
-      var opt = document.createElement('option');
-      opt.value = code;
-      list.appendChild(opt);
+  var suggestNode = el('symbol-suggest');
+  var searchEntries = [];
+  var searchIndex = {};
+  var currentMatches = [];
+  var activeSuggest = -1;
+
+  function addSearchEntry(code, name) {
+    code = (code || '').trim();
+    if (!code) { return; }
+    var entry = searchIndex[code];
+    if (!entry) {
+      entry = { code: code, name: '' };
+      searchIndex[code] = entry;
+      searchEntries.push(entry);
     }
+    if (name) { entry.name = String(name).trim(); }
   }
 
-  (APP.symbols || []).forEach(addSymbolOption);
+  var knownCodes = {};
+  (APP.symbols || []).forEach(function (code) {
+    addSearchEntry(code, APP.symbolNames && APP.symbolNames[code]);
+    knownCodes[code] = true;
+  });
+  Object.keys(APP.symbolNames || {}).forEach(function (code) {
+    if (knownCodes[code]) { addSearchEntry(code, APP.symbolNames[code]); }
+  });
+
+  function closeSuggest() {
+    suggestNode.classList.remove('open');
+    activeSuggest = -1;
+  }
+
+  function updateActiveSuggest() {
+    Array.prototype.forEach.call(
+      suggestNode.children, function (button, idx) {
+        button.classList.toggle('active', idx === activeSuggest);
+      });
+  }
+
+  function renderSuggest(query) {
+    var q = (query || '').trim().toLowerCase();
+    currentMatches = searchEntries.filter(function (entry) {
+      return !q ||
+        entry.code.toLowerCase().indexOf(q) >= 0 ||
+        entry.name.toLowerCase().indexOf(q) >= 0;
+    }).slice(0, 30);
+    suggestNode.innerHTML = '';
+    activeSuggest = -1;
+    if (!currentMatches.length) {
+      closeSuggest();
+      return;
+    }
+    currentMatches.forEach(function (entry, idx) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      var codeNode = document.createElement('span');
+      codeNode.className = 'code';
+      codeNode.textContent = entry.code;
+      var nameNode = document.createElement('span');
+      nameNode.className = 'name';
+      nameNode.textContent = entry.name;
+      button.appendChild(codeNode);
+      button.appendChild(nameNode);
+      button.addEventListener('mousedown', function (ev) {
+        ev.preventDefault();
+        el('symbol-input').value = entry.code;
+        closeSuggest();
+        switchSymbol(entry.code);
+      });
+      suggestNode.appendChild(button);
+      if (idx === 0) { activeSuggest = 0; }
+    });
+    updateActiveSuggest();
+    suggestNode.classList.add('open');
+  }
 
   function renderKline(payload) {
     candleSeries.setData(payload.candles || []);
@@ -975,7 +1042,7 @@ function renderStackedArea(nodeId, seriesList) {
       })
       .then(function (payload) {
         APP.payloads[code] = payload;
-        addSymbolOption(code);
+        addSearchEntry(code);
         return payload;
       });
   }
@@ -989,8 +1056,10 @@ function renderStackedArea(nodeId, seriesList) {
       el('symbol-input').value = code;
       renderKline(payload);
       renderTradesTable(payload);
+      var name = APP.symbolNames && APP.symbolNames[code];
+      var label = name ? (code + ' ' + name) : code;
       setStatus(
-        '当前复盘：' + code +
+        '当前复盘：' + label +
         '（' + (payload.candles || []).length + ' 根K线，' +
         (payload.trades || []).length + ' 笔交易）'
       );
@@ -1002,11 +1071,52 @@ function renderStackedArea(nodeId, seriesList) {
   // 供其他图表（如盈亏 vs 持仓时间散点）点击联动复盘
   APP._switchSymbol = switchSymbol;
 
+  function resolveQuery() {
+    var query = el('symbol-input').value.trim();
+    if (!query) { return query; }
+    var q = query.toLowerCase();
+    for (var i = 0; i < searchEntries.length; i++) {
+      if (searchEntries[i].code.toLowerCase() === q ||
+          searchEntries[i].name.toLowerCase() === q) {
+        return searchEntries[i].code;
+      }
+    }
+    return currentMatches.length ? currentMatches[0].code : query;
+  }
+
   el('symbol-go').addEventListener('click', function () {
-    switchSymbol(el('symbol-input').value);
+    switchSymbol(resolveQuery());
   });
   el('symbol-input').addEventListener('keydown', function (ev) {
-    if (ev.key === 'Enter') { switchSymbol(el('symbol-input').value); }
+    if (ev.key === 'ArrowDown' && suggestNode.classList.contains('open')) {
+      activeSuggest = (activeSuggest + 1) % suggestNode.children.length;
+      updateActiveSuggest();
+      ev.preventDefault();
+    } else if (ev.key === 'ArrowUp' && suggestNode.classList.contains('open')) {
+      activeSuggest = (activeSuggest - 1 + suggestNode.children.length) %
+        suggestNode.children.length;
+      updateActiveSuggest();
+      ev.preventDefault();
+    } else if (ev.key === 'Enter') {
+      if (activeSuggest >= 0 && currentMatches[activeSuggest]) {
+        el('symbol-input').value = currentMatches[activeSuggest].code;
+      } else {
+        el('symbol-input').value = resolveQuery();
+      }
+      closeSuggest();
+      switchSymbol(el('symbol-input').value);
+    } else if (ev.key === 'Escape') {
+      closeSuggest();
+    }
+  });
+  el('symbol-input').addEventListener('input', function () {
+    renderSuggest(el('symbol-input').value);
+  });
+  el('symbol-input').addEventListener('focus', function () {
+    renderSuggest(el('symbol-input').value);
+  });
+  el('symbol-input').addEventListener('blur', function () {
+    setTimeout(closeSuggest, 120);
   });
 
   var ext = APP.externalData;

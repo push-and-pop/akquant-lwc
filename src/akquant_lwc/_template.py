@@ -117,14 +117,17 @@ footer {
 .warn { color: var(--up); }
 .grid-2col {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
   gap: 16px;
 }
 .grid-2col > div {
   min-width: 0;
 }
 /* 宽表格自身横向滚动；图表容器不截断 tooltip */
-#tbl-orders, #tbl-executions {
+#tbl-orders, #tbl-executions,
+#tbl-exposure, #tbl-capacity, #tbl-attribution,
+#tbl-risk, #tbl-liquidation,
+#analysis-overview, #risk-top, #monthly-heatmap {
   overflow-x: auto;
 }
 .chart { width: 100%; position: relative; }
@@ -159,6 +162,46 @@ footer {
 .controls button:hover, #data-file-btn:hover { background: #1e4fd8; }
 .controls .status { font-size: 12px; color: var(--muted); }
 .controls .status.error { color: var(--up); }
+.symbol-search { position: relative; }
+.symbol-search input { width: 260px; }
+.symbol-suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: none;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow: 0 6px 18px rgba(16, 24, 40, 0.14);
+}
+.symbol-suggest.open { display: block; }
+.symbol-suggest button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+}
+.symbol-suggest button:hover,
+.symbol-suggest button.active { background: var(--panel); }
+.symbol-suggest button .code { color: var(--muted); white-space: nowrap; }
+.symbol-suggest button .name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tooltip {
   position: absolute;
   z-index: 20;
@@ -196,6 +239,38 @@ table.trades tbody tr:hover { background: var(--panel); }
 table.heatmap td, table.heatmap th {
   text-align: center !important;
   min-width: 62px;
+}
+/* Daily rows grow with the backtest window: scroll in place and keep the
+   header visible while the holdings column stays a predictable width. */
+.position-table-wrap {
+  overflow: auto;
+  max-height: min(72vh, 820px);
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  scrollbar-gutter: stable;
+}
+table.position-table {
+  margin-top: 0;
+  min-width: 1040px;
+  table-layout: fixed;
+}
+table.position-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+table.position-table th:nth-child(1) { width: 104px; }
+table.position-table th:nth-child(2) { width: 82px; }
+table.position-table th:nth-child(3) { width: 128px; }
+table.position-table th:nth-child(4) { width: 138px; }
+table.position-table th:nth-child(5) { width: 90px; }
+table.position-table th:nth-child(6) { width: 122px; }
+table.position-table th:last-child,
+table.position-table td:last-child {
+  min-width: 380px;
 }
 .hint { color: var(--muted); font-size: 12px; }
 .empty-panel {
@@ -267,6 +342,7 @@ details.details-block summary {
 .position-chip.long span:first-of-type { color: var(--up); }
 .position-chip.short span:first-of-type { color: var(--down); }
 .position-chip.long, .position-chip.short { border-color: currentColor; }
+.table-scroll { width: 100%; overflow-x: auto; }
 </style>
 <script>__LWC_JS__</script>
 </head>
@@ -367,9 +443,11 @@ details.details-block summary {
            accept=".json,application/json" style="display:none"/>
   </div>
   <div class="controls">
-    <input id="symbol-input" list="symbol-list"
-           placeholder="输入股票代码后回车，如 600519.SH"/>
-    <datalist id="symbol-list"></datalist>
+    <div class="symbol-search">
+      <input id="symbol-input" autocomplete="off"
+             placeholder="输入代码或中文名称，如 工业富联"/>
+      <div class="symbol-suggest" id="symbol-suggest"></div>
+    </div>
     <button id="symbol-go" type="button">复盘</button>
     <span class="status" id="symbol-status"></span>
   </div>
@@ -379,16 +457,18 @@ details.details-block summary {
   <div class="hint">
     提示：点击交易明细行可定位到对应区间；K 线上悬停买卖点可查看交易详情。
   </div>
-  <table class="trades" id="trades-table" style="display:none">
-    <thead>
-      <tr>
-        <th>方向</th><th>开/平</th><th>开仓时间</th><th>开仓价</th>
-        <th>平仓时间</th><th>平仓价</th><th>数量</th>
-        <th>收益率</th><th>净利润</th>
-      </tr>
-    </thead>
-    <tbody id="trades-body"></tbody>
-  </table>
+  <div class="table-scroll">
+    <table class="trades" id="trades-table" style="display:none">
+      <thead>
+        <tr>
+          <th>方向</th><th>开/平</th><th>开仓时间</th><th>开仓价</th>
+          <th>平仓时间</th><th>平仓价</th><th>数量</th>
+          <th>收益率</th><th>净利润</th>
+        </tr>
+      </thead>
+      <tbody id="trades-body"></tbody>
+    </table>
+  </div>
 </section>
 
 <section class="card">

@@ -108,6 +108,7 @@ def build_app_data(
     result: Any,
     market_data: Optional[Union[pd.DataFrame, Dict[str, pd.DataFrame]]] = None,
     symbols: Optional[List[str]] = None,
+    symbol_names: Optional[Dict[str, str]] = None,
     title: str = "",
     server_mode: bool = False,
     plot_symbol: Optional[str] = None,
@@ -129,6 +130,8 @@ def build_app_data(
         symbol column.
     :param symbols: Optional subset of symbols to embed in the page. Only
         meaningful in static mode; the server loads symbols on demand.
+    :param symbol_names: Optional ``{symbol: display name}`` mapping shown by
+        the daily-holdings chips and the trade-review header.
     :param title: Report title.
     :param server_mode: When true, the page fetches unknown symbols from the
         review server instead of failing.
@@ -147,6 +150,11 @@ def build_app_data(
     :return: JSON-serializable application payload.
     """
     trades_by_symbol = extract_trades_by_symbol(result)
+    names = {
+        str(code).strip(): str(name).strip()
+        for code, name in (symbol_names or {}).items()
+        if str(code).strip() and str(name).strip()
+    }
     frames = coerce_market_data(market_data, list(trades_by_symbol))
     if symbols is not None:
         wanted = {str(s) for s in symbols}
@@ -203,12 +211,15 @@ def build_app_data(
         "pnlDuration": build_pnl_vs_duration(trades_df),
         "includeTradeKline": include_trade_kline,
         "analysisOverviewHtml": build_analysis_overview(result, compact_currency),
-        "dailyPositionsHtml": build_daily_positions_section(result, compact_currency),
+        "dailyPositionsHtml": build_daily_positions_section(
+            result, compact_currency, symbol_names=names
+        ),
         "analysisTables": build_analysis_tables(result, compact_currency),
         "risk": build_risk_sections(result, compact_currency),
         "indicators": indicators,
         "payloads": payloads,
         "symbols": symbol_list,
+        "symbolNames": names,
         "initialSymbol": pick_initial_symbol(
             payloads, trades_by_symbol, preferred=plot_symbol
         ),
@@ -239,6 +250,7 @@ def plot_report(
     title: str = "AKQuant 策略回测报告 (Lightweight Charts)",
     filename: str = "akquant_lwc_report.html",
     symbols: Optional[List[str]] = None,
+    symbol_names: Optional[Dict[str, str]] = None,
     plot_symbol: Optional[str] = None,
     show: bool = False,
     compact_currency: bool = True,
@@ -264,6 +276,8 @@ def plot_report(
     :param title: Report title.
     :param filename: Output HTML path.
     :param symbols: Optional subset of symbols to embed.
+    :param symbol_names: Optional ``{symbol: display name}`` mapping shown by
+        the daily-holdings chips and the trade-review header.
     :param plot_symbol: Symbol displayed initially.
     :param show: Open the report in the default browser when done.
     :param compact_currency: Render amounts with compact K/M/B suffixes.
@@ -287,6 +301,7 @@ def plot_report(
         result,
         market_data=market_data,
         symbols=symbols,
+        symbol_names=symbol_names,
         title=title,
         server_mode=False,
         plot_symbol=plot_symbol,

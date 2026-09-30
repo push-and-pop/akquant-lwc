@@ -932,7 +932,11 @@ def build_analysis_tables(result: Any, compact: bool) -> Dict[str, str]:
     return out
 
 
-def build_daily_positions_section(result: Any, compact: bool) -> str:
+def build_daily_positions_section(
+    result: Any,
+    compact: bool,
+    symbol_names: Optional[Dict[str, str]] = None,
+) -> str:
     """Build the day-by-day holdings overview (HTML).
 
     ``positions_df`` only contains symbols with a non-zero position, so the
@@ -941,6 +945,8 @@ def build_daily_positions_section(result: Any, compact: bool) -> str:
 
     :param result: ``BacktestResult``-like object.
     :param compact: Compact K/M/B amounts switch.
+    :param symbol_names: Optional ``{symbol: display name}`` mapping; holding
+        chips prefer the name and keep the code as the hover tooltip.
     :return: HTML fragment with summary cards and a daily holdings table.
     """
     positions = _call_result_df(result, "positions_df")
@@ -1030,7 +1036,7 @@ def build_daily_positions_section(result: Any, compact: bool) -> str:
     )
 
     rows: List[str] = []
-    for row in daily.itertuples():
+    for row in daily.sort_index(ascending=False).itertuples():
         day = pd.Timestamp(row.Index)
         holdings = position_groups.get(day)
         chips = []
@@ -1045,9 +1051,12 @@ def build_daily_positions_section(result: Any, compact: bool) -> str:
                 weight = ""
                 if pd.notna(row.equity) and float(row.equity) > 0:
                     weight = f"{float(item['_gross']) / float(row.equity) * 100:.2f}%"
-                symbol = _html.escape(str(item["symbol"]))
+                symbol = str(item["symbol"])
+                name = str((symbol_names or {}).get(symbol, "")).strip()
+                label = _html.escape(name) if name else _html.escape(symbol)
+                title_attr = f' title="{_html.escape(symbol)}"' if name else ""
                 chips.append(
-                    f'<span class="position-chip {side}"><b>{symbol}</b>'
+                    f'<span class="position-chip {side}"{title_attr}><b>{label}</b>'
                     f"<span>{side_label}</span><span>{qty_label}</span>"
                     f"<span>{weight}</span></span>"
                 )
@@ -1079,10 +1088,11 @@ def build_daily_positions_section(result: Any, compact: bool) -> str:
     return (
         '<div class="metrics-grid">'
         + cards
-        + '</div><table class="data-table position-table"><thead><tr>'
+        + '</div><div class="position-table-wrap">'
+        + '<table class="data-table position-table"><thead><tr>'
         "<th>日期</th><th>持仓数</th><th>净持仓市值</th>"
         "<th>总持仓市值(万)</th><th>仓位</th><th>总资产(万)</th><th>持仓明细</th>"
-        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
     )
 
 
